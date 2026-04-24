@@ -93,8 +93,11 @@ def run_inference(args):
     model_name = get_model_name_from_path(model_path)
     tokenizer, model, image_processor, context_len = load_pretrained_model(
         model_path, args.model_base, model_name,
+        load_8bit=args.load_8bit,
+        load_4bit=args.load_4bit,
         device = torch.device("cuda"),
         device_map="auto",
+        use_flash_attn=args.use_flash_attn,
         rope_scaling_factor=args.rope_scaling_factor,
     )
     key_frame_path = args.key_frame_path
@@ -250,6 +253,9 @@ def parse_args():
     parser.add_argument("--prune_mode", type=str, default=None)
     parser.add_argument("--rate", help='this_global_rate', type=float,default=None)
     parser.add_argument("--tokens_num", help='tokens_num', type=int,default=936)
+    parser.add_argument("--load_4bit", action="store_true")
+    parser.add_argument("--load_8bit", action="store_true")
+    parser.add_argument("--use_flash_attn", action="store_true")
     return parser.parse_args()
 
 
