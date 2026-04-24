@@ -8,7 +8,7 @@ Purpose: Repository root for KTV training-free video QA code and local evaluatio
 - `run_eval_grouped_openai_compatible.py`: grouped-per-video OpenAI-compatible evaluator.
 - `run_eval_star_openai_compatible.py`: grouped STAR clip evaluator using raw video segments.
 - `run_eval_cached_singleq_openai.py`: single-question evaluator that reuses decoded frames per video.
-- `run_eval_three_stage_openai.py`: three-stage global-to-local evaluator with router-driven local refinement.
+- `run_eval_three_stage_openai.py`: three-stage global-to-local evaluator with router-selected anchor frames, optional KTV keyframe reuse, and local refinement.
 - `dataset.py`: shared frame loading utilities for videos and extracted frame folders.
 - `cluster_keyframe_and_order.py`: keyframe clustering and ordering utilities used by the original KTV workflow.
 - `keyframe_select_new.py`: feature extraction and keyframe preparation script for KTV.

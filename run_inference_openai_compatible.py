@@ -94,6 +94,26 @@ def load_video_segment(video_path: str, start: float, end: float, num_frms: int)
     return clip_imgs, tuple(original_sizes)
 
 
+def load_video_frame_indices(video_path: str, frame_indices):
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        raise IOError(f"Cannot open video {video_path}")
+
+    clip_imgs = []
+    original_sizes = []
+    for idx in sorted(set(int(i) for i in frame_indices)):
+        cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+        ret, frame = cap.read()
+        if not ret:
+            continue
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        img = Image.fromarray(frame)
+        clip_imgs.append(img)
+        original_sizes.append(img.size)
+    cap.release()
+    return clip_imgs, tuple(original_sizes)
+
+
 def get_video_duration_seconds(video_path: str) -> float:
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
@@ -105,6 +125,124 @@ def get_video_duration_seconds(video_path: str) -> float:
     if fps <= 0:
         raise ValueError(f"Invalid FPS for video {video_path}")
     return total_num_frames / fps
+
+
+def resolve_video_time_range(video_dir: str, video_name: str):
+    video_path, start, end = resolve_video_source(video_dir, video_name)
+    if start is None or end is None:
+        start = 0.0
+        end = get_video_duration_seconds(video_path)
+    return video_path, start, end
+
+
+def get_video_fps(video_path: str) -> float:
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        raise IOError(f"Cannot open video {video_path}")
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    cap.release()
+    if fps <= 0:
+        raise ValueError(f"Invalid FPS for video {video_path}")
+    return fps
+
+
+def build_anchor_windows(start: float, end: float, anchor_times):
+    if not anchor_times:
+        raise ValueError("anchor_times must not be empty")
+    num_anchors = len(anchor_times)
+    anchor_times = [max(start, min(end, float(t))) for t in anchor_times]
+    anchor_times.sort()
+    if num_anchors == 1:
+        return [(start, end)]
+
+    boundaries = [start]
+    for idx in range(num_anchors - 1):
+        boundaries.append((anchor_times[idx] + anchor_times[idx + 1]) / 2.0)
+    boundaries.append(end)
+    windows = []
+    for idx in range(num_anchors):
+        left = max(start, boundaries[idx])
+        right = min(end, boundaries[idx + 1])
+        if right <= left:
+            right = min(end, left + 1e-6)
+        windows.append((left, right))
+    return windows
+
+
+def load_question_keyframes(keyframe_data, question_id: str):
+    if not keyframe_data:
+        return None
+    keyframes = keyframe_data.get(question_id)
+    if not keyframes:
+        return None
+    indices = []
+    for item in keyframes:
+        if isinstance(item, (list, tuple)) and item:
+            try:
+                indices.append(int(item[0]))
+            except (TypeError, ValueError):
+                continue
+        else:
+            try:
+                indices.append(int(item))
+            except (TypeError, ValueError):
+                continue
+    if not indices:
+        return None
+    return sorted(set(indices))
+
+
+def resolve_question_overview_frames(
+    video_dir: str,
+    video_name: str,
+    num_frames: int,
+    question_id: str | None = None,
+    keyframe_data=None,
+):
+    video_path, start, end = resolve_video_time_range(video_dir, video_name)
+    fps = get_video_fps(video_path)
+    clip_start_frame = int(start * fps)
+    clip_end_frame = max(clip_start_frame + 1, int(end * fps))
+
+    keyframe_indices = load_question_keyframes(keyframe_data, question_id) if question_id else None
+    if keyframe_indices:
+        filtered = [idx for idx in keyframe_indices if clip_start_frame <= idx < clip_end_frame]
+        if filtered:
+            frames, sizes = load_video_frame_indices(video_path, filtered[:num_frames])
+            anchor_times = [idx / fps for idx in filtered[: len(frames)]]
+            if frames:
+                return frames, sizes, anchor_times
+
+    frames, sizes = resolve_video_and_frames(video_dir, video_name, num_frames)
+    anchor_times = []
+    if frames:
+        span = max(end - start, 1e-6)
+        interval = span / max(len(frames), 1)
+        anchor_times = [start + interval * idx for idx in range(len(frames))]
+    return frames, sizes, anchor_times
+
+
+def resolve_video_anchor_and_frames_from_times(
+    video_dir: str, video_name: str, num_frames: int, anchor_idx: int, anchor_times
+):
+    if not anchor_times:
+        raise ValueError("anchor_times must not be empty")
+    if anchor_idx < 0 or anchor_idx >= len(anchor_times):
+        raise ValueError(f"anchor_idx must be in [0, {len(anchor_times)}), got {anchor_idx}")
+
+    video_path, start, end = resolve_video_time_range(video_dir, video_name)
+    anchor_windows = build_anchor_windows(start, end, anchor_times)
+    window_start, window_end = anchor_windows[anchor_idx]
+    return load_video_segment(video_path, window_start, window_end, num_frames)
+
+
+def build_uniform_anchor_times(start: float, end: float, num_anchors: int):
+    if num_anchors <= 0:
+        raise ValueError("num_anchors must be positive")
+    if num_anchors == 1:
+        return [start]
+    span = max(end - start, 1e-6)
+    return [start + span * idx / num_anchors for idx in range(num_anchors)]
 
 
 def resolve_video_source(video_dir: str, video_name: str):
@@ -129,24 +267,17 @@ def resolve_video_and_frames(video_dir: str, video_name: str, num_frames: int):
     return load_video_segment(video_path, start, end, num_frames)
 
 
-def resolve_video_window_and_frames(
-    video_dir: str, video_name: str, num_frames: int, window_idx: int, num_windows: int
+def resolve_video_anchor_and_frames(
+    video_dir: str, video_name: str, num_frames: int, anchor_idx: int, num_anchors: int
 ):
-    if num_windows <= 0:
-        raise ValueError("num_windows must be positive")
-    if window_idx < 0 or window_idx >= num_windows:
-        raise ValueError(f"window_idx must be in [0, {num_windows}), got {window_idx}")
+    if num_anchors <= 0:
+        raise ValueError("num_anchors must be positive")
+    if anchor_idx < 0 or anchor_idx >= num_anchors:
+        raise ValueError(f"anchor_idx must be in [0, {num_anchors}), got {anchor_idx}")
 
-    video_path, start, end = resolve_video_source(video_dir, video_name)
-    if start is None or end is None:
-        start = 0.0
-        end = get_video_duration_seconds(video_path)
-
-    span = max(end - start, 1e-6)
-    window_start = start + span * window_idx / num_windows
-    window_end = start + span * (window_idx + 1) / num_windows
-    if window_idx == num_windows - 1:
-        window_end = end
+    video_path, start, end = resolve_video_time_range(video_dir, video_name)
+    anchor_windows = build_anchor_windows(start, end, build_uniform_anchor_times(start, end, num_anchors))
+    window_start, window_end = anchor_windows[anchor_idx]
     return load_video_segment(video_path, window_start, window_end, num_frames)
 
 

@@ -12,3 +12,13 @@
 - Expanded `run_inference_openai_compatible.py` with reusable chat and temporal-window loading helpers instead of adding a separate transport layer.
 - Added `run_eval_three_stage_openai.py` as a minimal three-stage runner: global overview, routing, and optional local refinement.
 - Did this to start the small-large collaborative framework while reusing the existing OpenAI-compatible video QA pipeline and keeping the CLI narrow.
+
+## 2026-04-25 - Switch local refinement from uniform windows to anchor-centered segments
+
+- Replaced fixed uniform local windows with segments centered on the global overview anchors chosen by the router.
+- Did this to align refinement with global keyframe structure instead of forcing the router to choose among arbitrary front/middle/back bins.
+
+## 2026-04-25 - Reuse KTV clustered keyframes for global overview
+
+- Added optional `key_frame_path` support to the three-stage runner so overview frames can come from the original KTV clustered keyframe files keyed by `question_id`.
+- Reused those anchor times to build local refinement segments around actual overview keyframes instead of synthetic uniform anchors.

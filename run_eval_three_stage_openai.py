@@ -10,8 +10,9 @@ from tqdm import tqdm
 
 from run_inference_openai_compatible import (
     chat_with_frames,
-    resolve_video_and_frames,
-    resolve_video_window_and_frames,
+    resolve_question_overview_frames,
+    resolve_video_anchor_and_frames,
+    resolve_video_anchor_and_frames_from_times,
 )
 
 
@@ -60,19 +61,20 @@ def parse_json_object(text: str):
         return None
 
 
-def build_router_prompt(question: str, candidates, num_windows: int) -> str:
+def build_router_prompt(question: str, candidates, num_anchors: int) -> str:
     options = "\n".join(
         f"({chr(ord('A') + idx)}) {candidate}" for idx, candidate in enumerate(candidates)
     )
     return (
         "You are the routing stage of a three-stage video QA system.\n"
         "The frames are a global overview sampled across the whole video.\n"
-        "Give a tentative answer, estimate confidence, and choose one coarse time window "
+        "Each overview frame acts as an anchor for one local refinement segment around that moment.\n"
+        "Give a tentative answer, estimate confidence, and choose one anchor frame index "
         "for local refinement if more detail is needed.\n"
         "Return JSON only with keys answer, confidence, and focus_window.\n"
         "answer must be a single option letter such as A, B, C, or D.\n"
         f"confidence must be one of: high, medium, low.\n"
-        f"focus_window must be an integer between 0 and {num_windows - 1}.\n"
+        f"focus_window must be an integer between 0 and {num_anchors - 1}.\n"
         f"Question: {question}\n"
         f"Options:\n{options}\n"
     )
@@ -100,7 +102,7 @@ def build_solver_prompt(question: str, candidates, has_local_frames: bool) -> st
     )
 
 
-def parse_router_output(raw_text: str, candidates, num_windows: int):
+def parse_router_output(raw_text: str, candidates, num_anchors: int):
     parsed = parse_json_object(raw_text) or {}
 
     answer = normalize_option_answer(str(parsed.get("answer", "")), candidates)
@@ -113,10 +115,10 @@ def parse_router_output(raw_text: str, candidates, num_windows: int):
         confidence = match.group(1) if match else "low"
 
     try:
-        focus_window = int(parsed.get("focus_window", num_windows // 2))
+        focus_window = int(parsed.get("focus_window", num_anchors // 2))
     except (TypeError, ValueError):
-        focus_window = num_windows // 2
-    focus_window = max(0, min(num_windows - 1, focus_window))
+        focus_window = num_anchors // 2
+    focus_window = max(0, min(num_anchors - 1, focus_window))
 
     return {
         "answer": answer,
@@ -142,33 +144,51 @@ def resolve_router_params(args):
     }
 
 
+def load_keyframe_data(key_frame_path: str | None):
+    if not key_frame_path:
+        return None
+    with open(key_frame_path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
 def process_video(video_dir, video_name, samples, args):
-    try:
-        global_frames, _ = resolve_video_and_frames(video_dir, video_name, args.global_num_frames)
-    except FileNotFoundError as e:
-        return video_name, [], str(e)
-
-    if not global_frames:
-        return video_name, [], f"empty global frames for video: {video_name}"
-
     router_params = resolve_router_params(args)
     local_cache = {}
+    overview_cache = {}
     records = []
 
     for sample in samples:
+        overview_key = sample["question_id"] if args.key_frame_data else "__shared__"
+        if overview_key not in overview_cache:
+            try:
+                overview_cache[overview_key] = resolve_question_overview_frames(
+                    video_dir=video_dir,
+                    video_name=video_name,
+                    num_frames=args.global_num_frames,
+                    question_id=sample["question_id"],
+                    keyframe_data=args.key_frame_data,
+                )
+            except FileNotFoundError as e:
+                return video_name, [], str(e)
+
+        global_frames, _, anchor_times = overview_cache[overview_key]
+        if not global_frames:
+            return video_name, [], f"empty global frames for video: {video_name}"
+        num_anchors = len(global_frames)
+
         router_raw = chat_with_frames(
             api_base=router_params["api_base"],
             api_key=router_params["api_key"],
             model_name=router_params["model_name"],
             video_frames=global_frames,
             prompt_text=build_router_prompt(
-                sample["question"], sample["candidates"], args.num_windows
+                sample["question"], sample["candidates"], num_anchors
             ),
             max_tokens=router_params["max_tokens"],
             temperature=router_params["temperature"],
         )
         router_result = parse_router_output(
-            router_raw, candidates=sample["candidates"], num_windows=args.num_windows
+            router_raw, candidates=sample["candidates"], num_anchors=num_anchors
         )
 
         refined = should_refine(router_result, args.always_refine)
@@ -176,16 +196,26 @@ def process_video(video_dir, video_name, samples, args):
 
         if refined:
             focus_window = router_result["focus_window"]
-            if focus_window not in local_cache:
+            cache_key = (overview_key, focus_window)
+            if cache_key not in local_cache:
                 try:
-                    local_frames, _ = resolve_video_window_and_frames(
-                        video_dir, video_name, args.local_num_frames, focus_window, args.num_windows
-                    )
+                    if args.key_frame_data and anchor_times:
+                        local_frames, _ = resolve_video_anchor_and_frames_from_times(
+                            video_dir,
+                            video_name,
+                            args.local_num_frames,
+                            focus_window,
+                            anchor_times,
+                        )
+                    else:
+                        local_frames, _ = resolve_video_anchor_and_frames(
+                            video_dir, video_name, args.local_num_frames, focus_window, num_anchors
+                        )
                 except FileNotFoundError as e:
                     return video_name, [], str(e)
-                local_cache[focus_window] = local_frames
+                local_cache[cache_key] = local_frames
 
-            local_frames = local_cache[focus_window]
+            local_frames = local_cache[cache_key]
             merged_frames = list(global_frames) + list(local_frames)
             pred = chat_with_frames(
                 api_base=args.api_base,
@@ -307,9 +337,9 @@ def parse_args():
     parser.add_argument("--router_api_base", default=None)
     parser.add_argument("--router_api_key", default=None)
     parser.add_argument("--router_model_name", default=None)
+    parser.add_argument("--key_frame_path", default=None)
     parser.add_argument("--global_num_frames", type=int, default=6)
     parser.add_argument("--local_num_frames", type=int, default=6)
-    parser.add_argument("--num_windows", type=int, default=3)
     parser.add_argument("--router_max_tokens", type=int, default=128)
     parser.add_argument("--max_tokens", type=int, default=128)
     parser.add_argument("--router_temperature", type=float, default=0.0)
@@ -320,4 +350,6 @@ def parse_args():
 
 
 if __name__ == "__main__":
-    main(parse_args())
+    args = parse_args()
+    args.key_frame_data = load_keyframe_data(args.key_frame_path)
+    main(args)
