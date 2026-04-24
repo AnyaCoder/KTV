@@ -205,13 +205,19 @@ def resolve_question_overview_frames(
     clip_end_frame = max(clip_start_frame + 1, int(end * fps))
 
     keyframe_indices = load_question_keyframes(keyframe_data, question_id) if question_id else None
-    if keyframe_indices:
+    if keyframe_data is not None:
+        if not keyframe_indices:
+            raise ValueError(f"Missing keyframes for question_id={question_id}")
         filtered = [idx for idx in keyframe_indices if clip_start_frame <= idx < clip_end_frame]
-        if filtered:
-            frames, sizes = load_video_frame_indices(video_path, filtered[:num_frames])
-            anchor_times = [idx / fps for idx in filtered[: len(frames)]]
-            if frames:
-                return frames, sizes, anchor_times
+        if not filtered:
+            raise ValueError(
+                f"No keyframes for question_id={question_id} fall inside clip range {start:.3f}-{end:.3f}"
+            )
+        frames, sizes = load_video_frame_indices(video_path, filtered[:num_frames])
+        anchor_times = [idx / fps for idx in filtered[: len(frames)]]
+        if not frames:
+            raise ValueError(f"Failed to load keyframe overview frames for question_id={question_id}")
+        return frames, sizes, anchor_times
 
     frames, sizes = resolve_video_and_frames(video_dir, video_name, num_frames)
     anchor_times = []

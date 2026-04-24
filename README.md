@@ -31,6 +31,18 @@ to extract Dinov2 features. Then use
 cluster_keyframe_and_order.py
 ```
 to select keyframes for each test data.
+Example:
+```
+python3 keyframe_select_new.py \
+  --gt_file playground/gt_qa_files/STAR/val_qa.json \
+  --video_dir your_video_dir \
+  --output_pickle star_dino_features.pkl
+
+python3 cluster_keyframe_and_order.py \
+  --gt_file playground/gt_qa_files/STAR/val_qa.json \
+  --feature_pickle star_dino_features.pkl \
+  --output_json star_keyframes.json
+```
 ### 2. Inference with llava
 ```
 bash runcode.sh

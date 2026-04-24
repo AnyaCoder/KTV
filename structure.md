@@ -11,7 +11,8 @@ Purpose: Repository root for KTV training-free video QA code and local evaluatio
 - `run_eval_three_stage_openai.py`: three-stage global-to-local evaluator with router-selected anchor frames, optional KTV keyframe reuse, and local refinement.
 - `dataset.py`: shared frame loading utilities for videos and extracted frame folders.
 - `cluster_keyframe_and_order.py`: keyframe clustering and ordering utilities used by the original KTV workflow.
-- `keyframe_select_new.py`: feature extraction and keyframe preparation script for KTV.
+- `keyframe_select_new.py`: CLI for extracting DINOv2 frame features over each evaluation sample's effective video range.
+- `cluster_keyframe_and_order.py`: CLI for KMeans keyframe selection plus CLIP-based question ordering that outputs `question_id -> keyframes`.
 - `eval/`: evaluation scripts for multiple-choice outputs.
 - `scripts/`: small utility scripts for dataset preparation and download/extraction.
 - `ktv/llava/`: vendored LLaVA package configuration used by the original KTV implementation.

@@ -22,3 +22,8 @@
 
 - Added optional `key_frame_path` support to the three-stage runner so overview frames can come from the original KTV clustered keyframe files keyed by `question_id`.
 - Reused those anchor times to build local refinement segments around actual overview keyframes instead of synthetic uniform anchors.
+
+## 2026-04-25 - Purify the KTV keyframe pipeline
+
+- Rewrote `keyframe_select_new.py` and `cluster_keyframe_and_order.py` into parameterized CLIs while keeping the paper pipeline intact: DINOv2 frame features, KMeans cluster centers, then CLIP ranking against the question.
+- Removed the mixed fallback in the three-stage runner when `--key_frame_path` is supplied; missing or invalid keyframes now fail loudly instead of silently reverting to uniform overview frames.

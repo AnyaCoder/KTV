@@ -168,7 +168,7 @@ def process_video(video_dir, video_name, samples, args):
                     question_id=sample["question_id"],
                     keyframe_data=args.key_frame_data,
                 )
-            except FileNotFoundError as e:
+            except (FileNotFoundError, ValueError, KeyError) as e:
                 return video_name, [], str(e)
 
         global_frames, _, anchor_times = overview_cache[overview_key]
@@ -211,7 +211,7 @@ def process_video(video_dir, video_name, samples, args):
                         local_frames, _ = resolve_video_anchor_and_frames(
                             video_dir, video_name, args.local_num_frames, focus_window, num_anchors
                         )
-                except FileNotFoundError as e:
+                except (FileNotFoundError, ValueError, KeyError) as e:
                     return video_name, [], str(e)
                 local_cache[cache_key] = local_frames
 
