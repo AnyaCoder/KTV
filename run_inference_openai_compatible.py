@@ -35,6 +35,18 @@ def build_prompt(question: str, candidates) -> str:
     )
 
 
+def build_content(prompt_text: str, video_frames):
+    content = [{"type": "text", "text": prompt_text}]
+    for image in video_frames:
+        content.append(
+            {
+                "type": "image_url",
+                "image_url": {"url": image_to_data_url(image)},
+            }
+        )
+    return content
+
+
 def parse_star_clip_name(video_name: str):
     if not video_name.endswith(".mp4"):
         return None
@@ -82,39 +94,72 @@ def load_video_segment(video_path: str, start: float, end: float, num_frms: int)
     return clip_imgs, tuple(original_sizes)
 
 
-def resolve_video_and_frames(video_dir: str, video_name: str, num_frames: int):
+def get_video_duration_seconds(video_path: str) -> float:
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        raise IOError(f"Cannot open video {video_path}")
+
+    total_num_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    cap.release()
+    if fps <= 0:
+        raise ValueError(f"Invalid FPS for video {video_path}")
+    return total_num_frames / fps
+
+
+def resolve_video_source(video_dir: str, video_name: str):
     direct_path = os.path.join(video_dir, video_name)
     if os.path.exists(direct_path):
-        return load_video(direct_path, keyframe=None, num_frms=num_frames)
+        return direct_path, None, None
 
     star_clip = parse_star_clip_name(video_name)
     if star_clip is not None:
         raw_name, start, end = star_clip
         raw_path = os.path.join(video_dir, raw_name)
         if os.path.exists(raw_path):
-            return load_video_segment(raw_path, start, end, num_frames)
+            return raw_path, start, end
 
     raise FileNotFoundError(f"Cannot resolve video for {video_name} under {video_dir}")
 
 
-def infer_one(
+def resolve_video_and_frames(video_dir: str, video_name: str, num_frames: int):
+    video_path, start, end = resolve_video_source(video_dir, video_name)
+    if start is None or end is None:
+        return load_video(video_path, keyframe=None, num_frms=num_frames)
+    return load_video_segment(video_path, start, end, num_frames)
+
+
+def resolve_video_window_and_frames(
+    video_dir: str, video_name: str, num_frames: int, window_idx: int, num_windows: int
+):
+    if num_windows <= 0:
+        raise ValueError("num_windows must be positive")
+    if window_idx < 0 or window_idx >= num_windows:
+        raise ValueError(f"window_idx must be in [0, {num_windows}), got {window_idx}")
+
+    video_path, start, end = resolve_video_source(video_dir, video_name)
+    if start is None or end is None:
+        start = 0.0
+        end = get_video_duration_seconds(video_path)
+
+    span = max(end - start, 1e-6)
+    window_start = start + span * window_idx / num_windows
+    window_end = start + span * (window_idx + 1) / num_windows
+    if window_idx == num_windows - 1:
+        window_end = end
+    return load_video_segment(video_path, window_start, window_end, num_frames)
+
+
+def chat_with_frames(
     api_base: str,
     api_key: str,
     model_name: str,
     video_frames,
-    question: str,
-    candidates,
+    prompt_text: str,
     max_tokens: int,
     temperature: float,
 ):
-    content = [{"type": "text", "text": build_prompt(question, candidates)}]
-    for image in video_frames:
-        content.append(
-            {
-                "type": "image_url",
-                "image_url": {"url": image_to_data_url(image)},
-            }
-        )
+    content = build_content(prompt_text, video_frames)
 
     payload = {
         "model": model_name,
@@ -135,6 +180,27 @@ def infer_one(
     response.raise_for_status()
     data = response.json()
     return data["choices"][0]["message"]["content"].strip()
+
+
+def infer_one(
+    api_base: str,
+    api_key: str,
+    model_name: str,
+    video_frames,
+    question: str,
+    candidates,
+    max_tokens: int,
+    temperature: float,
+):
+    return chat_with_frames(
+        api_base=api_base,
+        api_key=api_key,
+        model_name=model_name,
+        video_frames=video_frames,
+        prompt_text=build_prompt(question, candidates),
+        max_tokens=max_tokens,
+        temperature=temperature,
+    )
 
 
 def run_inference(args):
