@@ -3,6 +3,7 @@
 Purpose: Repository root for KTV training-free video QA code and local evaluation helpers.
 
 - `README.md`: original setup and inference notes for the KTV codebase.
+- `.gitignore`: repository-local ignore rules for datasets, logs, wheels, and local checkpoint weights.
 - `.codex/skills/`: repository-local Codex skills, including the reusable `codex-guidelines` skill derived from `CODEX.md`.
 - `run_inference_multiple_choice_qa.py`: primary local LLaVA-based multiple-choice inference entrypoint.
 - `run_inference_openai_compatible.py`: shared OpenAI-compatible video inference helper with STAR clip resolution.

@@ -1,5 +1,10 @@
 # Maintenance Log
 
+## 2026-04-25 - Ignore local weight checkpoints
+
+- Updated `.gitignore` to exclude local `*.pth` files alongside wheel artifacts.
+- Did this to keep downloaded DINOv2 and other model checkpoints out of the cleaned repository checkpoints before pushing.
+
 ## 2026-04-25 - Add evidence-plan segment-tree routing
 
 - Extended `run_eval_swarm_openai.py` with a two-stage segment-tree router: an optional text-only evidence-plan pass from the question and options, then evidence-plan-guided tree expansion without directly predicting the answer.
