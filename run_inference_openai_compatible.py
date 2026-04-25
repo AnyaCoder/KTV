@@ -101,7 +101,16 @@ def load_video_frame_indices(video_path: str, frame_indices):
 
     clip_imgs = []
     original_sizes = []
-    for idx in sorted(set(int(i) for i in frame_indices)):
+    seen = set()
+    ordered_indices = []
+    for value in frame_indices:
+        idx = int(value)
+        if idx in seen:
+            continue
+        seen.add(idx)
+        ordered_indices.append(idx)
+
+    for idx in ordered_indices:
         cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
         ret, frame = cap.read()
         if not ret:
@@ -176,20 +185,25 @@ def load_question_keyframes(keyframe_data, question_id: str):
     if not keyframes:
         return None
     indices = []
+    seen = set()
     for item in keyframes:
         if isinstance(item, (list, tuple)) and item:
             try:
-                indices.append(int(item[0]))
+                idx = int(item[0])
             except (TypeError, ValueError):
                 continue
         else:
             try:
-                indices.append(int(item))
+                idx = int(item)
             except (TypeError, ValueError):
                 continue
+        if idx in seen:
+            continue
+        seen.add(idx)
+        indices.append(idx)
     if not indices:
         return None
-    return sorted(set(indices))
+    return indices
 
 
 def resolve_question_overview_frames(
@@ -201,20 +215,14 @@ def resolve_question_overview_frames(
 ):
     video_path, start, end = resolve_video_time_range(video_dir, video_name)
     fps = get_video_fps(video_path)
-    clip_start_frame = int(start * fps)
-    clip_end_frame = max(clip_start_frame + 1, int(end * fps))
 
     keyframe_indices = load_question_keyframes(keyframe_data, question_id) if question_id else None
     if keyframe_data is not None:
         if not keyframe_indices:
             raise ValueError(f"Missing keyframes for question_id={question_id}")
-        filtered = [idx for idx in keyframe_indices if clip_start_frame <= idx < clip_end_frame]
-        if not filtered:
-            raise ValueError(
-                f"No keyframes for question_id={question_id} fall inside clip range {start:.3f}-{end:.3f}"
-            )
-        frames, sizes = load_video_frame_indices(video_path, filtered[:num_frames])
-        anchor_times = [idx / fps for idx in filtered[: len(frames)]]
+        selected = keyframe_indices[:num_frames]
+        frames, sizes = load_video_frame_indices(video_path, selected)
+        anchor_times = [idx / fps for idx in selected[: len(frames)]]
         if not frames:
             raise ValueError(f"Failed to load keyframe overview frames for question_id={question_id}")
         return frames, sizes, anchor_times

@@ -23,6 +23,18 @@ from llava.model import *
 from llava.constants import DEFAULT_IMAGE_PATCH_TOKEN, DEFAULT_IM_START_TOKEN, DEFAULT_IM_END_TOKEN
 
 
+def ensure_llama_config_compat(cfg):
+    # Older LLaVA configs miss fields expected by newer transformers Llama modules.
+    defaults = {
+        "attention_bias": False,
+        "mlp_bias": False,
+    }
+    for key, value in defaults.items():
+        if not hasattr(cfg, key):
+            setattr(cfg, key, value)
+    return cfg
+
+
 def load_pretrained_model(model_path, model_base, model_name, load_8bit=False, load_4bit=False, device_map="auto", device="cuda", use_flash_attn=False, **kwargs):
     # kwargs = {"device_map": device_map, **kwargs}
     kwargs['device_map'] = device_map
@@ -115,7 +127,7 @@ def load_pretrained_model(model_path, model_base, model_name, load_8bit=False, l
                 )
             else:
                 tokenizer = AutoTokenizer.from_pretrained(model_path, use_fast=False)
-                cfg_pretrained = AutoConfig.from_pretrained(model_path)
+                cfg_pretrained = ensure_llama_config_compat(AutoConfig.from_pretrained(model_path))
                 rope_scaling_factor = int(kwargs.pop("rope_scaling_factor", 1))
                 if rope_scaling_factor >= 2:
                     setattr(cfg_pretrained, "rope_scaling", {"factor": float(rope_scaling_factor), "type": "dynamic"})

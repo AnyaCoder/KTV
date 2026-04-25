@@ -1,5 +1,6 @@
 import argparse
 import json
+import os
 import pickle
 
 import clip
@@ -17,6 +18,21 @@ def truncate_prompt(prompt: str) -> str:
     if len(words) > 40:
         words = words[10:50]
     return " ".join(words)
+
+
+def build_ranking_prompt(question: str, candidates) -> str:
+    options = " ".join(
+        f"({chr(ord('A') + idx)}) {candidate}" for idx, candidate in enumerate(candidates)
+    )
+    return f"Question: {question} Options: {options}"
+
+
+def build_prompt_by_mode(question: str, candidates, ranking_mode: str) -> str:
+    if ranking_mode == "question_only":
+        return question
+    if ranking_mode == "question_candidates":
+        return build_ranking_prompt(question, candidates)
+    raise ValueError(f"Unsupported ranking_mode: {ranking_mode}")
 
 
 def video_frame_clustering(frame_features, num_clusters: int):
@@ -44,6 +60,23 @@ def load_gt(gt_file: str):
         return json.load(f)
 
 
+def load_existing_json(path: str):
+    if not os.path.exists(path):
+        return {}
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def atomic_dump_json(path: str, obj):
+    directory = os.path.dirname(path)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
+    tmp_path = f"{path}.tmp"
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        json.dump(obj, f, ensure_ascii=False, indent=2)
+    os.replace(tmp_path, path)
+
+
 def rank_cluster_frames(model_clip, preprocess_clip, device, video_path: str, frame_indices, prompt: str):
     frames, _ = load_video_frame_indices(video_path, frame_indices)
     if not frames:
@@ -65,17 +98,30 @@ def rank_cluster_frames(model_clip, preprocess_clip, device, video_path: str, fr
 
 
 def generate_keyframes(args):
+    if args.shard_rank < 0 or args.shard_rank >= args.num_shards:
+        raise ValueError(f"shard_rank must be in [0, {args.num_shards}), got {args.shard_rank}")
+
     device = args.device if torch.cuda.is_available() and args.device.startswith("cuda") else "cpu"
     model_clip, preprocess_clip = clip.load(args.clip_model, device=device)
 
     gt_data = load_gt(args.gt_file)
     feature_data = load_feature_pickle(args.feature_pickle)
-    output = {}
+    shard_samples = [sample for idx, sample in enumerate(gt_data) if idx % args.num_shards == args.shard_rank]
+    output = load_existing_json(args.output_json) if args.resume else {}
+    pending_samples = [
+        sample for sample in shard_samples if sample["question_id"] not in output
+    ]
+    pending_since_flush = 0
 
-    for sample in tqdm(gt_data, desc="Cluster and rank keyframes"):
+    desc = f"Cluster and rank keyframes [shard {args.shard_rank}/{args.num_shards}]"
+    for sample in tqdm(pending_samples, desc=desc):
         question_id = sample["question_id"]
         video_name = sample["video_name"]
-        prompt = sample["question"]
+        prompt = build_prompt_by_mode(
+            sample["question"],
+            sample["candidates"],
+            args.ranking_mode,
+        )
 
         if video_name not in feature_data:
             raise KeyError(f"Missing DINO features for {video_name}")
@@ -98,9 +144,12 @@ def generate_keyframes(args):
             prompt=prompt,
         )
         output[question_id] = [[int(frame_idx), order] for order, frame_idx in enumerate(ranked_frame_indices)]
+        pending_since_flush += 1
+        if args.flush_every > 0 and pending_since_flush >= args.flush_every:
+            atomic_dump_json(args.output_json, output)
+            pending_since_flush = 0
 
-    with open(args.output_json, "w", encoding="utf-8") as f:
-        json.dump(output, f, ensure_ascii=False, indent=2)
+    atomic_dump_json(args.output_json, output)
 
 
 def parse_args():
@@ -108,9 +157,18 @@ def parse_args():
     parser.add_argument("--gt_file", required=True)
     parser.add_argument("--feature_pickle", required=True)
     parser.add_argument("--output_json", required=True)
-    parser.add_argument("--num_clusters", type=int, default=12)
+    parser.add_argument("--num_clusters", type=int, default=6)
+    parser.add_argument(
+        "--ranking_mode",
+        choices=["question_only", "question_candidates"],
+        default="question_only",
+    )
     parser.add_argument("--clip_model", default="ViT-L/14")
     parser.add_argument("--device", default="cuda")
+    parser.add_argument("--num_shards", type=int, default=1)
+    parser.add_argument("--shard_rank", type=int, default=0)
+    parser.add_argument("--flush_every", type=int, default=16)
+    parser.add_argument("--resume", action="store_true")
     return parser.parse_args()
 
 

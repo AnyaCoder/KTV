@@ -19,6 +19,7 @@ from llava.mm_utils import tokenizer_image_token, process_images, get_model_name
 
 from dataset import load_video
 from prompt import get_multiple_choice_prompt
+from run_inference_openai_compatible import load_video_segment, resolve_video_source
 from utils import get_chunk
 
 
@@ -172,8 +173,12 @@ def run_inference(args):
         #     video_name = video_name[:start]+'.mp4'
         #     video_path = os.path.join(args.video_dir, video_name)
         # else:
-        video_path = os.path.join(args.video_dir, video_name)
-        video_path = video_path
+        try:
+            video_path, clip_start, clip_end = resolve_video_source(args.video_dir, video_name)
+        except FileNotFoundError as e:
+            print(str(e))
+            continue
+
         try:
             if key_frame[question_id]:
                 keyframe = key_frame[question_id]
@@ -188,16 +193,18 @@ def run_inference(args):
                     keyframe_order.append(temp_dict[i])
             else:
                 keyframe = None
-                keyframe_order=None
-        except:
+                keyframe_order = None
+        except Exception:
             keyframe = None
-            keyframe_order=None
+            keyframe_order = None
+
         if os.path.exists(video_path):
-            # try:
-            video_frames, sizes = load_video(video_path, keyframe, num_frms=args.num_frames)
-            # except Exception as e:
-            #     print(f"Failed to load {video_path}, continue...")
-            #     continue
+            if keyframe is not None:
+                video_frames, sizes = load_video(video_path, keyframe, num_frms=args.num_frames)
+            elif clip_start is not None and clip_end is not None:
+                video_frames, sizes = load_video_segment(video_path, clip_start, clip_end, args.num_frames)
+            else:
+                video_frames, sizes = load_video(video_path, keyframe, num_frms=args.num_frames)
 
             # Run inference on the video
             output = llava_inference(

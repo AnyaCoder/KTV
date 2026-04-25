@@ -1,5 +1,34 @@
 # Maintenance Log
 
+## 2026-04-25 - Add evidence-plan segment-tree routing
+
+- Extended `run_eval_swarm_openai.py` with a two-stage segment-tree router: an optional text-only evidence-plan pass from the question and options, then evidence-plan-guided tree expansion without directly predicting the answer.
+- Added payload controls to compare sending node representative frames versus all sampled frames inside the selected frontier, plus an optional final image resize for long multi-image requests.
+- Did this to move from generic compression toward question-conditioned evidence preservation while keeping matched ablations available.
+
+## 2026-04-25 - Add segment-tree VLM frame routing
+
+- Extended `run_eval_swarm_openai.py` with a `segment_tree` selection mode that builds a binary tree over sampled frames, asks the VLM to choose each interval's representative frame, and records compact tree metadata per sample.
+- Enforced monotonic frontier selection so if any subtree requires expansion, ancestors cannot collapse it back into a single representative frame.
+- Did this to match the new hierarchical "choose nodes on the tree that still cover the whole video" direction without adding a separate runner.
+
+## 2026-04-25 - Add VLM swarm frame selector
+
+- Added `run_eval_swarm_openai.py` for sliding-window frame selection with a VLM selector and VLM-based adjacent-frame merging before final QA.
+- Reused the existing OpenAI-compatible transport and STAR clip resolution helpers so the new evaluator can run against the same remote Qwen-VL endpoint.
+- Did this to test an online agent-swarm-style alternative to fixed uniform sampling and KTV clustered keyframes.
+
+## 2026-04-25 - Add repository-local coding rules skill
+
+- Added `.codex/skills/codex-guidelines/` to turn the repository root `CODEX.md` into a reusable skill.
+- Did this to preserve the repo's local coding rules in a form that can be reused directly during future coding work.
+
+## 2026-04-25 - Stop writing doc logs inside `.codex/skills`
+
+- Removed `maintain.md` and `structure.md` files from `.codex/skills/` and `.codex/skills/codex-guidelines/`.
+- Updated the local `codex-guidelines` skill and the shared `codebase-doc-maintainer` skill to skip local skill folders by default.
+- Did this because skill directories are already small and metadata-heavy, so extra folder docs add noise instead of navigation value.
+
 ## 2026-04-25 - Add OpenAI-compatible eval helpers and environment checkpoint
 
 - Added OpenAI-compatible inference and evaluation entrypoints at the repository root for remote VLM-based STAR evaluation.
