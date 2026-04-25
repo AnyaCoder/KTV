@@ -1,5 +1,10 @@
 # Maintenance Log
 
+## 2026-04-25 - Ignore local weight checkpoints
+
+- Updated `.gitignore` to exclude local `*.pth` files alongside wheel artifacts.
+- Did this to keep downloaded DINOv2 and other model checkpoints out of the cleaned repository checkpoints before pushing.
+
 ## 2026-04-25 - Add OpenAI-compatible eval helpers and environment checkpoint
 
 - Added OpenAI-compatible inference and evaluation entrypoints at the repository root for remote VLM-based STAR evaluation.
