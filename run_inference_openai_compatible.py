@@ -295,6 +295,7 @@ def chat_with_frames(
     prompt_text: str,
     max_tokens: int,
     temperature: float,
+    response_format=None,
 ):
     content = build_content(prompt_text, video_frames)
 
@@ -304,6 +305,8 @@ def chat_with_frames(
         "max_tokens": max_tokens,
         "temperature": temperature,
     }
+    if response_format is not None:
+        payload["response_format"] = response_format
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"

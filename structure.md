@@ -10,11 +10,12 @@ Purpose: Repository root for KTV training-free video QA code and local evaluatio
 - `run_eval_star_openai_compatible.py`: grouped STAR clip evaluator using raw video segments.
 - `run_eval_cached_singleq_openai.py`: single-question evaluator that reuses decoded frames per video.
 - `run_eval_three_stage_openai.py`: three-stage global-to-local evaluator with router-selected anchor frames, optional KTV keyframe reuse, and local refinement.
+- `run_eval_swarm_openai.py`: small-large swarm evaluator with 0.5s frame sampling, optional KTV keyframe-window leaves, soft temporal-chain planning, node-summary payloads, and OpenAI-compatible small/large model endpoints.
 - `dataset.py`: shared frame loading utilities for videos and extracted frame folders.
 - `cluster_keyframe_and_order.py`: keyframe clustering and ordering utilities used by the original KTV workflow.
 - `keyframe_select_new.py`: CLI for extracting DINOv2 frame features over each evaluation sample's effective video range.
 - `cluster_keyframe_and_order.py`: CLI for KMeans keyframe selection plus CLIP-based question ordering that outputs `question_id -> keyframes`.
 - `eval/`: evaluation scripts for multiple-choice outputs.
-- `scripts/`: small utility scripts for dataset preparation and download/extraction.
+- `scripts/`: utility scripts for dataset preparation plus local multi-replica SGLang launchers.
 - `ktv/llava/`: vendored LLaVA package configuration used by the original KTV implementation.
 - `playground/gt_qa_files/`: benchmark question files bundled with the repository.

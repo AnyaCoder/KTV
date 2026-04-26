@@ -1,5 +1,39 @@
 # Maintenance Log
 
+## 2026-04-26 - Lock 0.60 paper-fusion ablation checkpoint
+
+- Recorded that the strongest 100-sample result so far on the paper-fusion line is the `keyframe_windows + soft_temporal_chain + representative_only` configuration.
+- The corresponding run is `data/star_dataset/out/star_rand100_seed2026_seg_tree_ablate_repronly.jsonl`, which reached `60/100 = 0.60` with an average of `5.11` final frames per question.
+- Kept this as the checkpoint to branch from before trying the next refinement step.
+
+## 2026-04-26 - Add paper-fusion segment-tree options on a dedicated branch
+
+- Updated `run_eval_swarm_openai.py` to support KTV-style keyframe-window leaves via `--key_frame_path` and `--segment_tree_leaf_source keyframe_windows`, reusing chronological cluster anchors as non-uniform temporal partitions.
+- Added boundary-plus-representative node summaries and a `node_summary` payload mode so each tree node can carry compact start/representative/end evidence instead of a single frame.
+- Extended the evidence-plan prompt with an optional soft temporal-chain style that records short stage labels and feeds them back into the segment-tree expansion prompt.
+- Did this on the dedicated `feature/seg-tree-paper-fusion` branch so the earlier 59%-result branch remains untouched while the KTV/HiTeA/NeuS-QA fusion idea is explored separately.
+
+## 2026-04-26 - Rebalance swarm segment-tree routing against overcompression
+
+- Updated `run_eval_swarm_openai.py` so the evidence-plan prompt is shorter and less checklist-like, aiming for a soft grounded routing note instead of exhaustive preservation instructions.
+- Tightened the segment-tree expansion prompt to expand only for concrete visible risks such as temporal-boundary ambiguity, identity ambiguity, or answer-relevant state changes.
+- Added a question-aware adjacent frontier pruning pass for representative-mode segment-tree routing, plus a temporal-coverage guard that restores the first and last frontier nodes if pruning collapses everything to one frame.
+- Recorded new frontier-pruning metadata in the output JSONL for later analysis.
+- Did this to recover the earlier `question-aware + anti-overcompression guard` behavior inside the current swarm pipeline without introducing a separate legacy branch.
+
+## 2026-04-26 - Harden swarm parsing for small local VLM routing
+
+- Updated `run_eval_swarm_openai.py` so evidence-plan parsing can recover from truncated or non-strict-JSON small-model outputs, and segment-tree parsing now accepts free-form `Representative/Expand` responses.
+- Updated `run_inference_openai_compatible.py` so OpenAI-compatible requests can pass through `response_format`, then enabled JSON-object constrained decoding for swarm-side small-model routing calls.
+- Tightened the evidence-plan prompt so `relations` is capped to a small fixed vocabulary and added a minimal synthesized `preserve` fallback when the small model truncates after the early JSON fields.
+- Raised the default evidence-plan token budget from `256` to `512` for the swarm evaluator.
+- Did this to make the local `Qwen3.5-0.8B` multimodal swarm usable without changing the core segment-tree pipeline.
+
+## 2026-04-26 - Generalize local SGLang launcher for TP groups
+
+- Updated `scripts/launch_qwen35_swarm.sh` to accept semicolon-separated GPU groups, infer or validate `tensor-parallel-size`, and optionally enable `--sleep-on-idle`.
+- Did this to support 2-GPU-per-replica experiments such as running four `Qwen3.5-2B` local small-model services across eight GPUs while reducing idle CPU overhead.
+
 ## 2026-04-25 - Ignore local weight checkpoints
 
 - Updated `.gitignore` to exclude local `*.pth` files alongside wheel artifacts.
