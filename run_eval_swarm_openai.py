@@ -1035,6 +1035,54 @@ def collect_frontier_summary_frames(selected_nodes):
     return final_frames
 
 
+def has_temporal_chain_signal(evidence_plan):
+    if not evidence_plan:
+        return False
+    relations = set(evidence_plan.get("relations") or [])
+    stages = evidence_plan.get("stages") or []
+    if len(stages) >= 2:
+        return True
+    return bool(relations & {"before", "after", "while", "state change"})
+
+
+def collect_representative_temporal_guard_frames(sampled, selected_nodes, evidence_plan, max_extra_frames: int):
+    final_frames = []
+    seen = set()
+    for node in selected_nodes:
+        frame = node.representative
+        if frame.frame_idx in seen:
+            continue
+        seen.add(frame.frame_idx)
+        final_frames.append(frame)
+
+    if max_extra_frames <= 0 or not has_temporal_chain_signal(evidence_plan) or not selected_nodes:
+        return final_frames
+
+    extra_candidates = []
+    first_node = selected_nodes[0]
+    first_frame = sampled[first_node.start_idx]
+    if first_frame.frame_idx != first_node.representative.frame_idx:
+        extra_candidates.append((0, first_frame))
+
+    last_node = selected_nodes[-1]
+    last_frame = sampled[last_node.end_idx]
+    if last_frame.frame_idx != last_node.representative.frame_idx:
+        extra_candidates.append((len(final_frames), last_frame))
+
+    extras_added = 0
+    for insert_pos, frame in extra_candidates:
+        if extras_added >= max_extra_frames:
+            break
+        if frame.frame_idx in seen:
+            continue
+        seen.add(frame.frame_idx)
+        final_frames.insert(insert_pos, frame)
+        extras_added += 1
+
+    final_frames.sort(key=lambda item: item.time_sec)
+    return final_frames
+
+
 def build_evidence_plan(question: str, candidates, args):
     if args.segment_tree_prompt_mode == "question_aware_guard":
         return None
@@ -1074,6 +1122,13 @@ def select_segment_tree_frames(video_dir: str, video_name: str, question: str, c
         final_frames = collect_frontier_sampled_frames(sampled, selected_nodes)
     elif args.segment_tree_payload_mode == "node_summary":
         final_frames = collect_frontier_summary_frames(selected_nodes)
+    elif args.segment_tree_payload_mode == "representative_temporal_guard":
+        final_frames = collect_representative_temporal_guard_frames(
+            sampled,
+            selected_nodes,
+            evidence_plan,
+            args.temporal_guard_max_extra_frames,
+        )
     else:
         final_frames = [node.representative for node in selected_nodes]
     final_frames = cap_final_frames(final_frames, args.max_final_frames)
@@ -1301,7 +1356,7 @@ def parse_args():
     )
     parser.add_argument(
         "--segment_tree_payload_mode",
-        choices=["representative", "node_summary", "sampled_in_frontier"],
+        choices=["representative", "representative_temporal_guard", "node_summary", "sampled_in_frontier"],
         default="representative",
     )
     parser.add_argument(
@@ -1321,6 +1376,7 @@ def parse_args():
     )
     parser.add_argument("--segment_tree_summary_frame_cap", type=int, default=3)
     parser.add_argument("--max_keyframe_anchors", type=int, default=0)
+    parser.add_argument("--temporal_guard_max_extra_frames", type=int, default=2)
     parser.add_argument("--final_image_size", type=int, default=0)
     parser.add_argument("--max_final_frames", type=int, default=0)
     parser.add_argument("--selector_max_tokens", type=int, default=96)

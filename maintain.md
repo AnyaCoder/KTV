@@ -1,5 +1,17 @@
 # Maintenance Log
 
+## 2026-04-26 - Lock 0.62 sparse-temporal-guard checkpoint
+
+- Recorded that the current strongest 100-sample result is the `keyframe_windows + soft_temporal_chain + representative_temporal_guard` configuration.
+- The corresponding run is `data/star_dataset/out/star_rand100_seed2026_seg_tree_next_sparseguard.jsonl`, which reached `62/100 = 0.62` with an average of `6.82` final frames per question.
+- Kept this as the next checkpoint before exploring further lightweight temporal-coverage refinements.
+
+## 2026-04-26 - Add sparse temporal-guard payload on the next-step branch
+
+- Updated `run_eval_swarm_openai.py` with a new `representative_temporal_guard` payload mode.
+- This mode keeps the strong `representative_only` routing path, then sparsely adds up to a small number of boundary frames only when the evidence plan contains temporal-chain signals such as multiple stages or before/after relations.
+- Did this to test whether a very light temporal guard can recover some sequencing evidence without falling back to the much heavier `node_summary` payload that raised image count but underperformed.
+
 ## 2026-04-26 - Lock 0.60 paper-fusion ablation checkpoint
 
 - Recorded that the strongest 100-sample result so far on the paper-fusion line is the `keyframe_windows + soft_temporal_chain + representative_only` configuration.
