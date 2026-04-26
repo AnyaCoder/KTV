@@ -10,7 +10,8 @@ Purpose: Repository root for KTV training-free video QA code and local evaluatio
 - `run_eval_star_openai_compatible.py`: grouped STAR clip evaluator using raw video segments.
 - `run_eval_cached_singleq_openai.py`: single-question evaluator that reuses decoded frames per video.
 - `run_eval_three_stage_openai.py`: three-stage global-to-local evaluator with router-selected anchor frames, optional KTV keyframe reuse, and local refinement.
-- `run_eval_swarm_openai.py`: small-large swarm evaluator with 0.5s frame sampling, optional KTV keyframe-window leaves, soft temporal-chain planning, and multiple payload strategies including sparse temporal guards and node summaries.
+- `run_eval_swarm_openai.py`: small-large swarm evaluator whose default path is the `0.62` KTV-keyframe-window + soft temporal chain + sparse temporal guard segment-tree pipeline, while older routing and payload variants remain as ablation flags.
+- `seg_tree_method_062.md`: paper-style note that defines the current best `0.62` segment-tree pipeline, its method core, and its ablation-only components.
 - `dataset.py`: shared frame loading utilities for videos and extracted frame folders.
 - `cluster_keyframe_and_order.py`: keyframe clustering and ordering utilities used by the original KTV workflow.
 - `keyframe_select_new.py`: CLI for extracting DINOv2 frame features over each evaluation sample's effective video range.

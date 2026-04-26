@@ -1,5 +1,18 @@
 # Maintenance Log
 
+## 2026-04-26 - Promote the 0.62 segment-tree line to the default path
+
+- Updated `run_eval_swarm_openai.py` so the default evaluator path is now the `segment_tree + keyframe_windows + soft_temporal_chain + representative_temporal_guard` configuration.
+- Changed the mainline keyframe leaf path to fail loudly when keyframe metadata is missing or falls outside the clip, instead of silently reverting to uniform sampled leaves.
+- Kept the older leaf, payload, and summary variants as explicit ablation flags rather than the default behavior.
+- Did this to make the code match the current paper story and preserve pipeline purity for the mainline method.
+
+## 2026-04-26 - Document the 0.62 segment-tree method line
+
+- Added `seg_tree_method_062.md` to formalize the current strongest segment-tree pipeline in paper-style language.
+- Split the method into its main contribution path, ablation-only options, and heuristic-heavy engineering pieces so later writing does not overclaim parser fallbacks or exploratory branches.
+- Did this to keep the `0.62` line easy to explain and compare against later variants without confusing it with the unrelated `largest_gap` exploration state on the working branch.
+
 ## 2026-04-26 - Lock 0.62 sparse-temporal-guard checkpoint
 
 - Recorded that the current strongest 100-sample result is the `keyframe_windows + soft_temporal_chain + representative_temporal_guard` configuration.

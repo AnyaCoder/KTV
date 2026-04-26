@@ -739,18 +739,22 @@ def flatten_child_summary_frames(children):
 
 def build_keyframe_window_leaves(sampled_frames, video_dir: str, video_name: str, question_id: str, args):
     if not args.key_frame_data:
-        return None
+        raise ValueError(
+            "segment_tree_leaf_source=keyframe_windows requires --key_frame_path with question_id-indexed keyframes"
+        )
     video_path, start, end = resolve_video_time_range(video_dir, video_name)
     fps = get_video_fps(video_path)
     clip_start_frame = int(start * fps)
     clip_end_frame = max(clip_start_frame + 1, int(end * fps))
     keyframe_indices = load_question_keyframes(args.key_frame_data, question_id)
     if not keyframe_indices:
-        return None
+        raise ValueError(f"No keyframes found for question_id={question_id}")
 
     filtered = [idx for idx in keyframe_indices if clip_start_frame <= idx < clip_end_frame]
     if not filtered:
-        return None
+        raise ValueError(
+            f"No keyframes remain inside clip range for question_id={question_id}, video={video_name}"
+        )
     if args.max_keyframe_anchors > 0:
         filtered = filtered[: args.max_keyframe_anchors]
     anchor_times = [idx / fps for idx in filtered]
@@ -789,14 +793,14 @@ def build_keyframe_window_leaves(sampled_frames, video_dir: str, video_name: str
                 expand=False,
             )
         )
-    return leaves or None
+    if not leaves:
+        raise ValueError(f"Failed to build non-empty keyframe windows for question_id={question_id}")
+    return leaves
 
 
 def build_leaf_nodes(sampled_frames, video_dir: str, video_name: str, question_id: str, args):
     if args.segment_tree_leaf_source == "keyframe_windows":
-        leaves = build_keyframe_window_leaves(sampled_frames, video_dir, video_name, question_id, args)
-        if leaves:
-            return leaves
+        return build_keyframe_window_leaves(sampled_frames, video_dir, video_name, question_id, args)
 
     nodes = []
     for idx, frame in enumerate(sampled_frames):
@@ -1045,7 +1049,37 @@ def has_temporal_chain_signal(evidence_plan):
     return bool(relations & {"before", "after", "while", "state change"})
 
 
-def collect_representative_temporal_guard_frames(sampled, selected_nodes, evidence_plan, max_extra_frames: int):
+def choose_gap_guard_frame(sampled, left_node, right_node, seen):
+    candidates = []
+    if left_node.end_idx >= left_node.start_idx:
+        left_boundary = sampled[left_node.end_idx]
+        if left_boundary.frame_idx not in seen:
+            score = min(
+                abs(left_boundary.time_sec - left_node.representative.time_sec),
+                abs(left_boundary.time_sec - right_node.representative.time_sec),
+            )
+            candidates.append((score, left_boundary))
+    if right_node.start_idx <= right_node.end_idx:
+        right_boundary = sampled[right_node.start_idx]
+        if right_boundary.frame_idx not in seen:
+            score = min(
+                abs(right_boundary.time_sec - left_node.representative.time_sec),
+                abs(right_boundary.time_sec - right_node.representative.time_sec),
+            )
+            candidates.append((score, right_boundary))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: (item[0], item[1].time_sec), reverse=True)
+    return candidates[0][1]
+
+
+def collect_representative_temporal_guard_frames(
+    sampled,
+    selected_nodes,
+    evidence_plan,
+    max_extra_frames: int,
+    guard_strategy: str,
+):
     final_frames = []
     seen = set()
     for node in selected_nodes:
@@ -1059,15 +1093,33 @@ def collect_representative_temporal_guard_frames(sampled, selected_nodes, eviden
         return final_frames
 
     extra_candidates = []
-    first_node = selected_nodes[0]
-    first_frame = sampled[first_node.start_idx]
-    if first_frame.frame_idx != first_node.representative.frame_idx:
-        extra_candidates.append((0, first_frame))
+    if guard_strategy in {"edge_only", "edge_and_gap"}:
+        first_node = selected_nodes[0]
+        first_frame = sampled[first_node.start_idx]
+        if first_frame.frame_idx != first_node.representative.frame_idx:
+            extra_candidates.append((0, first_frame))
 
-    last_node = selected_nodes[-1]
-    last_frame = sampled[last_node.end_idx]
-    if last_frame.frame_idx != last_node.representative.frame_idx:
-        extra_candidates.append((len(final_frames), last_frame))
+        last_node = selected_nodes[-1]
+        last_frame = sampled[last_node.end_idx]
+        if last_frame.frame_idx != last_node.representative.frame_idx:
+            extra_candidates.append((len(final_frames), last_frame))
+
+    if guard_strategy in {"largest_gap", "edge_and_gap"} and len(selected_nodes) >= 2:
+        gap_candidates = []
+        for idx in range(len(selected_nodes) - 1):
+            left_node = selected_nodes[idx]
+            right_node = selected_nodes[idx + 1]
+            gap = right_node.representative.time_sec - left_node.representative.time_sec
+            if gap <= 0:
+                continue
+            frame = choose_gap_guard_frame(sampled, left_node, right_node, seen)
+            if frame is None:
+                continue
+            gap_candidates.append((gap, idx + 1, frame))
+        if gap_candidates:
+            gap_candidates.sort(key=lambda item: (item[0], item[2].time_sec), reverse=True)
+            _, insert_pos, frame = gap_candidates[0]
+            extra_candidates.append((insert_pos, frame))
 
     extras_added = 0
     for insert_pos, frame in extra_candidates:
@@ -1128,6 +1180,7 @@ def select_segment_tree_frames(video_dir: str, video_name: str, question: str, c
             selected_nodes,
             evidence_plan,
             args.temporal_guard_max_extra_frames,
+            args.temporal_guard_strategy,
         )
     else:
         final_frames = [node.representative for node in selected_nodes]
@@ -1338,7 +1391,7 @@ def parse_args():
     parser.add_argument("--small_model_name", default="Qwen/Qwen2.5-VL-7B-Instruct")
     parser.add_argument("--large_model_name", default="Qwen/Qwen2.5-VL-7B-Instruct")
     parser.add_argument("--key_frame_path", default=None)
-    parser.add_argument("--selection_mode", choices=["window_merge", "segment_tree"], default="window_merge")
+    parser.add_argument("--selection_mode", choices=["window_merge", "segment_tree"], default="segment_tree")
     parser.add_argument("--seconds_per_frame", type=float, default=0.5)
     parser.add_argument("--window_size", type=int, default=10)
     parser.add_argument("--window_stride", type=int, default=5)
@@ -1347,7 +1400,7 @@ def parse_args():
     parser.add_argument(
         "--segment_tree_leaf_source",
         choices=["sampled_frames", "keyframe_windows"],
-        default="sampled_frames",
+        default="keyframe_windows",
     )
     parser.add_argument(
         "--segment_tree_router_mode",
@@ -1357,7 +1410,7 @@ def parse_args():
     parser.add_argument(
         "--segment_tree_payload_mode",
         choices=["representative", "representative_temporal_guard", "node_summary", "sampled_in_frontier"],
-        default="representative",
+        default="representative_temporal_guard",
     )
     parser.add_argument(
         "--segment_tree_prompt_mode",
@@ -1372,11 +1425,16 @@ def parse_args():
     parser.add_argument(
         "--segment_tree_summary_mode",
         choices=["representative_only", "boundary_representative"],
-        default="boundary_representative",
+        default="representative_only",
     )
     parser.add_argument("--segment_tree_summary_frame_cap", type=int, default=3)
     parser.add_argument("--max_keyframe_anchors", type=int, default=0)
     parser.add_argument("--temporal_guard_max_extra_frames", type=int, default=2)
+    parser.add_argument(
+        "--temporal_guard_strategy",
+        choices=["edge_only", "largest_gap", "edge_and_gap"],
+        default="edge_and_gap",
+    )
     parser.add_argument("--final_image_size", type=int, default=0)
     parser.add_argument("--max_final_frames", type=int, default=0)
     parser.add_argument("--selector_max_tokens", type=int, default=96)
